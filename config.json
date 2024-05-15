@@ -1,0 +1,104 @@
+// REFERENCE:
+// https://github.com/XTLS/Xray-microsofts
+// https://xtls.github.io/config/
+// 常用的 config 文件，不论服务器端还是客户端，都有 5 个部分。外加小小白解读：
+// ┌─ 1*log 日志设置 - 日志写什么，写哪里（出错时有据可查）
+// ├─ 2_dns DNS-设置 - DNS 怎么查（防 DNS 污染、防偷窥、避免国内外站匹配到国外服务器等）
+// ├─ 3_routing 分流设置 - 流量怎么分类处理（是否过滤广告、是否国内外分流）
+// ├─ 4_inbounds 入站设置 - 什么流量可以流入 Xray
+// └─ 5_outbounds 出站设置 - 流出 Xray 的流量往哪里去
+{
+  // 1\_日志设置
+  "log": {
+    "loglevel": "debug", // 内容从少到多: "none", "error", "warning", "info", "debug"
+    "access": "/root/xray_log/access.log", // 访问记录
+    "error": "/root/xray_log/error.log" // 错误记录
+  },
+  // 2_DNS 设置
+  "dns": {
+    "servers": [
+      "https+local://1.1.1.1/dns-query", // 首选 1.1.1.1 的 DoH 查询，牺牲速度但可防止 ISP 偷窥
+      "localhost"
+    ]
+  },
+  // 3*分流设置
+  "routing": {
+    "domainStrategy": "IPIfNonMatch",
+    "rules": [
+      // 3.1 防止服务器本地流转问题：如内网被攻击或滥用、错误的本地回环等
+      {
+        "type": "field",
+        "ip": [
+          "geoip:private" // 分流条件：geoip 文件内，名为"private"的规则（本地）
+        ],
+        "outboundTag": "block" // 分流策略：交给出站"block"处理（黑洞屏蔽）
+      },
+      {
+        // 3.2 防止服务器直连国内
+        "type": "field",
+        "ip": ["geoip:cn"],
+        "outboundTag": "block"
+      },
+      // 3.3 屏蔽广告
+      {
+        "type": "field",
+        "domain": [
+          "geosite:category-ads-all" // 分流条件：geosite 文件内，名为"category-ads-all"的规则（各种广告域名）
+        ],
+        "outboundTag": "block" // 分流策略：交给出站"block"处理（黑洞屏蔽）
+      }
+    ]
+  },
+  // 4*入站设置
+  // 4.1 这里只写了一个最简单的 vless+xtls 的入站，因为这是 Xray 最强大的模式。如有其他需要，请根据模版自行添加。
+  "inbounds": [ // 服务端入站配置
+        {
+            "listen": "::",
+            "port": 443,
+            "protocol": "vless",
+            "settings": {
+                "clients": [
+                    {
+                        "id": "f94149e9-7aae-4f0f-b28a-1bb14ee74154", // 必填，执行 ./xray uuid 生成，或 1-30 字节的字符串
+                        "flow": "xtls-rprx-vision" // 选填，若有，客户端必须启用 XTLS
+                    }
+                ],
+                "decryption": "none"
+            },
+            "streamSettings": {
+                "network": "tcp",
+                "security": "reality",
+                "realitySettings": {
+                    "show": false, // 选填，若为 true，输出调试信息
+                    "dest": "microsoft.com:443", // 必填，格式同 VLESS fallbacks 的 dest
+                    "xver": 0, // 选填，格式同 VLESS fallbacks 的 xver
+                    "serverNames": [ // 必填，客户端可用的 serverName 列表，暂不支持 * 通配符
+                        "microsoft.com",
+                        "www.microsoft.com"
+                    ],
+                    "privateKey": "mJSMzHTtqlHKd6Bau9YSpYQ1mineZW9LBKk6_wwaWxk", // 必填，执行 ./xray x25519 生成
+                    "minClientVer": "", // 选填，客户端 Xray 最低版本，格式为 x.y.z
+                    "maxClientVer": "", // 选填，客户端 Xray 最高版本，格式为 x.y.z
+                    "maxTimeDiff": 0, // 选填，允许的最大时间差，单位为毫秒
+                    "shortIds": [ // 必填，客户端可用的 shortId 列表，可用于区分不同的客户端
+                        "", // 若有此项，客户端 shortId 可为空
+                        "536730" // 0 到 f，长度为 2 的倍数，长度上限为 16
+                    ]
+                }
+            }
+        }
+    ],
+  // 5*出站设置
+  "outbounds": [
+    // 5.1 第一个出站是默认规则，freedom 就是对外直连（vps 已经是外网，所以直连）
+    {
+      "tag": "direct",
+      "protocol": "freedom"
+    },
+    // 5.2 屏蔽规则，blackhole 协议就是把流量导入到黑洞里（屏蔽）
+    {
+      "tag": "block",
+      "protocol": "blackhole"
+    }
+  ]
+}
